@@ -20,6 +20,8 @@ type options struct {
 	Src            string
 	Dst            string
 	Package        string
+	Username       string
+	Password       string
 	Namespace      string
 	Insecure       bool
 	ClientCertFile string
@@ -38,6 +40,8 @@ func main() {
 	flag.StringVar(&opts.ClientCertFile, "cert", opts.ClientCertFile, "use client TLS cert file")
 	flag.StringVar(&opts.ClientKeyFile, "key", opts.ClientKeyFile, "use client TLS key file")
 	flag.BoolVar(&opts.Version, "version", opts.Version, "show version and exit")
+	flag.StringVar(&opts.Username, "username", opts.Username, "http username")
+	flag.StringVar(&opts.Password, "password", opts.Password, "http password")
 	flag.Parse()
 	if opts.Version {
 		fmt.Printf("wsdl2go %s\n", version)
@@ -69,7 +73,7 @@ func codegen(w io.Writer, opts options, cli *http.Client) error {
 	var f io.ReadCloser
 	if opts.Src == "" || opts.Src == "-" {
 		f = os.Stdin
-	} else if f, err = open(opts.Src, cli); err != nil {
+	} else if f, err = open(opts.Src, cli, opts.Username, opts.Password); err != nil {
 		return err
 	}
 	d, err := wsdl.Unmarshal(f)
@@ -90,12 +94,22 @@ func codegen(w io.Writer, opts options, cli *http.Client) error {
 	return enc.Encode(d)
 }
 
-func open(name string, cli *http.Client) (io.ReadCloser, error) {
+func open(name string, cli *http.Client, username, password string) (io.ReadCloser, error) {
 	u, err := url.Parse(name)
 	if err != nil || u.Scheme == "" {
 		return os.Open(name)
 	}
-	resp, err := cli.Get(name)
+
+	req, err := http.NewRequest(http.MethodGet, name, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Error while building request %s", err.Error())
+	}
+
+	if username != "" || password != "" {
+		req.SetBasicAuth(username, password)
+	}
+
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -129,5 +143,8 @@ func httpClient(insecure bool, clientCertPath, clientKeyPath string) *http.Clien
 		TLSHandshakeTimeout:   defaultTransport.TLSHandshakeTimeout,
 		TLSClientConfig:       tlsConfig,
 	}
-	return &http.Client{Transport: transport}
+
+	client := &http.Client{Transport: transport}
+
+	return client
 }
